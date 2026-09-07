@@ -704,6 +704,51 @@ export type Database = {
           },
         ]
       }
+      player_registration_requests: {
+        Row: {
+          admin_notes: string | null
+          cancelled_at: string | null
+          category: string | null
+          created_player_id: string | null
+          display_name: string
+          id: string
+          position: string
+          requested_at: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          cancelled_at?: string | null
+          category?: string | null
+          created_player_id?: string | null
+          display_name: string
+          id?: string
+          position: string
+          requested_at?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          admin_notes?: string | null
+          cancelled_at?: string | null
+          category?: string | null
+          created_player_id?: string | null
+          display_name?: string
+          id?: string
+          position?: string
+          requested_at?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       players: {
         Row: {
           category: string | null
@@ -976,6 +1021,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      cancel_new_player_registration: {
+        Args: { requested_request_id: string }
+        Returns: undefined
+      }
       cancel_player_claim: {
         Args: { requested_claim_id: string }
         Returns: undefined
@@ -984,9 +1033,25 @@ export type Database = {
         Args: { requested_role: string; requested_user_id: string }
         Returns: boolean
       }
+      request_new_player_registration: {
+        Args: {
+          requested_category?: string | null
+          requested_display_name: string
+          requested_position: string
+        }
+        Returns: string
+      }
       request_player_claim: {
         Args: { requested_player_id: string }
         Returns: string
+      }
+      review_new_player_registration: {
+        Args: {
+          decision: string
+          notes?: string | null
+          requested_request_id: string
+        }
+        Returns: string | null
       }
       review_player_claim: {
         Args: {
