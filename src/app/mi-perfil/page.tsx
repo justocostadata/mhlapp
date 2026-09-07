@@ -1,6 +1,11 @@
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { requestPlayerClaim, cancelPlayerClaim } from "./actions";
+import {
+  requestPlayerClaim,
+  cancelPlayerClaim,
+  cancelNewPlayerRegistration,
+} from "./actions";
+import { NewPlayerForm } from "./new-player-form";
 
 interface PageProps {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
@@ -16,7 +21,7 @@ export default async function MyProfilePage({ searchParams }: PageProps) {
     supabase.from("players").select("id, display_name, position, category, status, jersey_number, legacy_id").eq("user_id", user.id).maybeSingle(),
   ]);
 
-  // If no player linked, check for pending claim
+  // 1. If no player linked, check for pending historical claim
   let pendingClaim: {
     id: string;
     requested_at: string;
@@ -49,7 +54,30 @@ export default async function MyProfilePage({ searchParams }: PageProps) {
     }
   }
 
-  // Search logic if no player and no pending claim
+  // 2. If no player and no pending claim, check for pending new player registration
+  let pendingRegistration: {
+    id: string;
+    display_name: string;
+    position: string;
+    category: string | null;
+    requested_at: string;
+    status: string;
+  } | null = null;
+
+  if (!player && !pendingClaim) {
+    const { data: reg } = await supabase
+      .from("player_registration_requests")
+      .select("id, display_name, position, category, requested_at, status")
+      .eq("user_id", user.id)
+      .eq("status", "pending")
+      .maybeSingle();
+
+    if (reg) {
+      pendingRegistration = reg;
+    }
+  }
+
+  // 3. Search logic if no player, no pending claim, and no pending registration
   const query = typeof resolvedParams.q === "string" ? resolvedParams.q.trim() : "";
   let searchResults: Array<{
     id: string;
@@ -58,7 +86,7 @@ export default async function MyProfilePage({ searchParams }: PageProps) {
     category: string | null;
   }> = [];
 
-  if (!player && !pendingClaim && query.length > 0) {
+  if (!player && !pendingClaim && !pendingRegistration && query.length > 0) {
     const { data: results } = await supabase
       .from("players")
       .select("id, display_name, position, category")
@@ -109,7 +137,7 @@ export default async function MyProfilePage({ searchParams }: PageProps) {
           )}
         </section>
       ) : pendingClaim ? (
-        /* CASO 2: SOLICITUD PENDIENTE */
+        /* CASO 2: SOLICITUD HISTÓRICA PENDIENTE */
         <section className="mt-8 rounded-2xl border border-[var(--mhl-border)] bg-[var(--mhl-panel)] p-6">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
@@ -143,7 +171,7 @@ export default async function MyProfilePage({ searchParams }: PageProps) {
           </div>
 
           <p className="mt-4 text-xs text-[var(--mhl-muted)]">
-            Tu solicitud está a la espera de aprobación por parte del Administrador.
+            Tu solicitud de vinculación está a la espera de aprobación por parte del Administrador.
           </p>
 
           <form action={cancelPlayerClaim} className="mt-6">
@@ -156,8 +184,56 @@ export default async function MyProfilePage({ searchParams }: PageProps) {
             </button>
           </form>
         </section>
+      ) : pendingRegistration ? (
+        /* CASO 3: SOLICITUD DE ALTA DE JUGADOR NUEVO PENDIENTE */
+        <section className="mt-8 rounded-2xl border border-[var(--mhl-border)] bg-[var(--mhl-panel)] p-6">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-[var(--mhl-yellow)]" />
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--mhl-yellow)]">
+                Solicitud de alta pendiente
+              </p>
+            </div>
+            <span className="text-xs text-[var(--mhl-muted)]">
+              {new Date(pendingRegistration.requested_at).toLocaleDateString("es-AR", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })}
+            </span>
+          </div>
+
+          <h2 className="mt-4 text-2xl font-black uppercase tracking-tight">
+            {pendingRegistration.display_name}
+          </h2>
+
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-[var(--mhl-border)] bg-[var(--mhl-panel-2)] p-4">
+              <p className="text-xs text-[var(--mhl-muted)]">Posición</p>
+              <p className="mt-1 font-black">{pendingRegistration.position}</p>
+            </div>
+            <div className="rounded-xl border border-[var(--mhl-border)] bg-[var(--mhl-panel-2)] p-4">
+              <p className="text-xs text-[var(--mhl-muted)]">Categoría</p>
+              <p className="mt-1 font-black">{pendingRegistration.category ?? "—"}</p>
+            </div>
+          </div>
+
+          <p className="mt-4 text-xs text-[var(--mhl-muted)]">
+            Tu solicitud de alta como nuevo jugador está a la espera de revisión y aprobación del Administrador.
+          </p>
+
+          <form action={cancelNewPlayerRegistration} className="mt-6">
+            <input type="hidden" name="requestId" value={pendingRegistration.id} />
+            <button
+              type="submit"
+              className="w-full rounded-xl border border-[var(--mhl-red)]/50 bg-[var(--mhl-red)]/10 px-5 py-3 text-xs font-black uppercase tracking-wider text-[var(--mhl-red)] transition hover:bg-[var(--mhl-red)]/20"
+            >
+              Cancelar solicitud
+            </button>
+          </form>
+        </section>
       ) : (
-        /* CASO 3: BUSCADOR DE JUGADORES */
+        /* CASO 4: BUSCADOR DE HISTÓRICOS + FORMULARIO NUEVO JUGADOR */
         <section className="mt-8 space-y-6">
           <div className="rounded-2xl border border-[var(--mhl-border)] bg-[var(--mhl-panel)] p-6">
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--mhl-muted)]">Vinculación deportiva</p>
@@ -222,6 +298,9 @@ export default async function MyProfilePage({ searchParams }: PageProps) {
               )}
             </div>
           )}
+
+          {/* ALTERNATIVA PARA JUGADORES NUEVOS */}
+          <NewPlayerForm />
         </section>
       )}
     </main>
