@@ -51,12 +51,13 @@ export default async function CoachPage({ searchParams }: Props) {
 
   const teamId = activeCoachRecord.team_id;
 
-  // 2. Fetch team details, all active coaches, active roster, pending roster requests
+  // 2. Fetch team details, all active coaches, active roster, pending roster requests, and competitive matches
   const [
     teamResult,
     coachesResult,
     rosterMembersResult,
     pendingRequestsResult,
+    teamMatchesResult,
   ] = await Promise.all([
     supabase.from("teams").select("id, name, short_name, logo_url, active").eq("id", teamId).single(),
     supabase.from("team_coaches").select("id, user_id, joined_at").eq("team_id", teamId).is("left_at", null),
@@ -67,12 +68,62 @@ export default async function CoachPage({ searchParams }: Props) {
       .eq("team_id", teamId)
       .eq("status", "pending")
       .order("requested_at", { ascending: false }),
+    supabase
+      .from("matches")
+      .select("id, match_type, scheduled_at, venue_name, pitch, status, home_team_id, away_team_id, team_price, matchday")
+      .eq("match_type", "competition")
+      .in("status", ["open", "full", "confirmed", "in_progress"])
+      .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
+      .order("scheduled_at", { ascending: true, nullsFirst: false }),
   ]);
 
   const team = teamResult.data;
   const teamCoaches = coachesResult.data ?? [];
   const rosterMembers = rosterMembersResult.data ?? [];
   const pendingRequests = pendingRequestsResult.data ?? [];
+  const competitiveMatches = teamMatchesResult.data ?? [];
+
+  // Fetch rival teams and team financials for competitive matches
+  const rivalTeamIds = Array.from(
+    new Set(
+      competitiveMatches
+        .map((m) => (m.home_team_id === teamId ? m.away_team_id : m.home_team_id))
+        .filter(Boolean) as string[]
+    )
+  );
+  const compMatchIds = competitiveMatches.map((m) => m.id);
+
+  const [{ data: rivalTeamsData }, { data: teamFinancialsData }] = await Promise.all([
+    rivalTeamIds.length > 0
+      ? supabase.from("teams").select("id, name, short_name, logo_url").in("id", rivalTeamIds)
+      : { data: [] },
+    compMatchIds.length > 0
+      ? supabase
+          .from("match_team_financials")
+          .select("id, match_id, team_id, amount_due")
+          .eq("team_id", teamId)
+          .in("match_id", compMatchIds)
+      : { data: [] },
+  ]);
+
+  const rivalTeamsMap = new Map((rivalTeamsData ?? []).map((t) => [t.id, t]));
+  const teamFinancialsMap = new Map((teamFinancialsData ?? []).map((f) => [f.match_id, f]));
+
+  const compFinancialIds = (teamFinancialsData ?? []).map((f) => f.id);
+  const { data: teamPaymentsData } = compFinancialIds.length > 0
+    ? await supabase
+        .from("match_team_payments")
+        .select("id, financial_id, kind, amount, voided_at")
+        .in("financial_id", compFinancialIds)
+        .is("voided_at", null)
+    : { data: [] };
+
+  const teamPaymentsByFinancialId = new Map<string, Array<{ kind: string; amount: number }>>();
+  for (const p of teamPaymentsData ?? []) {
+    const list = teamPaymentsByFinancialId.get(p.financial_id) ?? [];
+    list.push(p);
+    teamPaymentsByFinancialId.set(p.financial_id, list);
+  }
 
   // Fetch coach profiles
   const coachUserIds = Array.from(new Set(teamCoaches.map((c) => c.user_id)));
@@ -207,6 +258,106 @@ export default async function CoachPage({ searchParams }: Props) {
             );
           })}
         </div>
+      </section>
+
+      {/* PRÓXIMOS PARTIDOS COMPETITIVOS */}
+      <section className="mt-8 space-y-4">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--mhl-green)]">Fixture Oficial</p>
+          <h2 className="mt-1 text-2xl font-black uppercase tracking-tight">Próximos Partidos Competitivos</h2>
+          <p className="mt-1 text-xs text-[var(--mhl-muted)]">
+            Consultá los compromisos oficiales de tu franquicia, estado de citaciones y finanzas del equipo. Abrí el partido para convocar jugadores de tu plantilla.
+          </p>
+        </div>
+
+        {competitiveMatches.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-[var(--mhl-border)] bg-[var(--mhl-panel)] p-8 text-center text-sm text-[var(--mhl-muted)]">
+            No hay partidos competitivos programados para tu equipo actualmente.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {competitiveMatches.map((m) => {
+              const isHome = m.home_team_id === teamId;
+              const rivalId = isHome ? m.away_team_id : m.home_team_id;
+              const rival = rivalId ? rivalTeamsMap.get(rivalId) : null;
+              const fin = teamFinancialsMap.get(m.id);
+              const payments = fin ? (teamPaymentsByFinancialId.get(fin.id) ?? []) : [];
+
+              const amountDue = fin?.amount_due ?? m.team_price ?? 0;
+              let paid = 0;
+              let waiver = 0;
+              for (const p of payments) {
+                if (p.kind === "payment") paid += p.amount;
+                if (p.kind === "waiver") waiver += p.amount;
+              }
+              const balance = Math.max(0, amountDue - paid - waiver);
+
+              return (
+                <article
+                  key={m.id}
+                  className="flex flex-col justify-between gap-4 rounded-2xl border border-[var(--mhl-border)] bg-[var(--mhl-panel)] p-5 transition hover:border-[#3e4c44] sm:flex-row sm:items-center"
+                >
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className={`rounded-md px-2 py-0.5 text-[10px] font-black uppercase tracking-wider ${
+                        isHome ? "bg-blue-500/15 text-blue-400 border border-blue-500/30" : "bg-purple-500/15 text-purple-400 border border-purple-500/30"
+                      }`}>
+                        {isHome ? "Local" : "Visitante"}
+                      </span>
+                      <span className="rounded-md border border-[var(--mhl-border)] bg-[var(--mhl-panel-2)] px-2 py-0.5 text-[10px] font-bold uppercase text-[var(--mhl-muted)]">
+                        Estado: {m.status}
+                      </span>
+                      {m.scheduled_at && (
+                        <span className="font-bold text-[var(--mhl-muted)]">
+                          {new Date(m.scheduled_at).toLocaleDateString("es-AR", {
+                            weekday: "short",
+                            day: "numeric",
+                            month: "short",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      )}
+                    </div>
+
+                    <h3 className="text-xl font-black uppercase tracking-tight">
+                      <span className="text-[var(--mhl-muted)]">vs</span> {rival?.name || "Rival a definir"}
+                    </h3>
+
+                    <p className="text-xs text-[var(--mhl-muted)]">
+                      {m.venue_name || "Lugar a designar"} {m.pitch ? `· Cancha ${m.pitch}` : ""}
+                      {m.matchday ? ` · Fecha ${m.matchday}` : ""}
+                    </p>
+
+                    {/* FINANZAS DEL EQUIPO */}
+                    <div className="flex flex-wrap items-center gap-3 pt-1 text-xs">
+                      <span className="text-[var(--mhl-muted)]">
+                        Precio Equipo: <strong className="text-[var(--mhl-text)]">${amountDue.toLocaleString("es-AR")}</strong>
+                      </span>
+                      <span className="text-[var(--mhl-muted)]">
+                        Abonado: <strong className="text-[var(--mhl-green)]">${paid.toLocaleString("es-AR")}</strong>
+                      </span>
+                      <span className="text-[var(--mhl-muted)]">
+                        Saldo: <strong className={balance > 0 ? "text-[var(--mhl-red)]" : "text-[var(--mhl-green)]"}>
+                          ${balance.toLocaleString("es-AR")}
+                        </strong>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <Link
+                      href={`/coach/partidos/${m.id}`}
+                      className="inline-block w-full sm:w-auto rounded-xl bg-[var(--mhl-green)] px-5 py-3 text-center text-xs font-black uppercase tracking-wider text-[#080b0a] shadow-lg transition hover:brightness-110"
+                    >
+                      Ver Convocatoria &rarr;
+                    </Link>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {/* SOLICITUDES PENDIENTES */}
