@@ -21,7 +21,56 @@ export default async function MyProfilePage({ searchParams }: PageProps) {
     supabase.from("players").select("id, display_name, position, category, status, jersey_number, legacy_id").eq("user_id", user.id).maybeSingle(),
   ]);
 
-  // 1. If no player linked, check for pending historical claim
+  // 1. If player linked, check active team membership and teammates
+  let activeTeam: { id: string; name: string; short_name: string | null } | null = null;
+  let teammates: Array<{
+    id: string;
+    display_name: string;
+    position: string | null;
+    jersey_number: number | null;
+  }> = [];
+
+  if (player) {
+    const { data: memberRecord } = await supabase
+      .from("team_members")
+      .select("id, team_id, joined_at")
+      .eq("player_id", player.id)
+      .is("left_at", null)
+      .maybeSingle();
+
+    if (memberRecord) {
+      const [{ data: teamData }, { data: allMembers }] = await Promise.all([
+        supabase
+          .from("teams")
+          .select("id, name, short_name")
+          .eq("id", memberRecord.team_id)
+          .single(),
+        supabase
+          .from("team_members")
+          .select("player_id")
+          .eq("team_id", memberRecord.team_id)
+          .is("left_at", null),
+      ]);
+
+      activeTeam = teamData;
+
+      const teammateIds = (allMembers ?? [])
+        .map((m) => m.player_id)
+        .filter((pid) => pid !== player.id);
+
+      if (teammateIds.length > 0) {
+        const { data: matesData } = await supabase
+          .from("players")
+          .select("id, display_name, position, jersey_number")
+          .in("id", teammateIds)
+          .order("display_name");
+
+        teammates = matesData ?? [];
+      }
+    }
+  }
+
+  // 2. If no player linked, check for pending historical claim
   let pendingClaim: {
     id: string;
     requested_at: string;
@@ -133,6 +182,60 @@ export default async function MyProfilePage({ searchParams }: PageProps) {
             <div className="mt-3 rounded-2xl border border-[var(--mhl-border)] bg-[var(--mhl-panel)] p-5">
               <p className="text-xs text-[var(--mhl-muted)]">Dorsal</p>
               <p className="mt-2 text-2xl font-black">#{player.jersey_number}</p>
+            </div>
+          )}
+
+          {/* MI EQUIPO */}
+          {activeTeam ? (
+            <div className="mt-6 rounded-2xl border border-[var(--mhl-border)] bg-[var(--mhl-panel)] p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[var(--mhl-green)]">
+                    Mi Equipo
+                  </p>
+                  <h3 className="mt-1 text-2xl font-black uppercase tracking-tight">
+                    {activeTeam.name}
+                  </h3>
+                </div>
+                {activeTeam.short_name && (
+                  <span className="rounded-md border border-[var(--mhl-border)] bg-[var(--mhl-panel-2)] px-2.5 py-1 text-xs font-black uppercase tracking-wider text-[var(--mhl-muted)]">
+                    {activeTeam.short_name}
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-6 border-t border-[var(--mhl-border)]/60 pt-4">
+                <p className="text-xs font-bold uppercase tracking-wider text-[var(--mhl-muted)]">
+                  Compañeros de equipo ({teammates.length})
+                </p>
+
+                {teammates.length === 0 ? (
+                  <p className="mt-2 text-xs italic text-[var(--mhl-muted)]">
+                    No hay otros compañeros asignados en la plantilla activa todavía.
+                  </p>
+                ) : (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {teammates.map((mate) => (
+                      <div
+                        key={mate.id}
+                        className="flex items-center justify-between rounded-xl border border-[var(--mhl-border)] bg-[var(--mhl-panel-2)] px-3.5 py-2.5 text-xs"
+                      >
+                        <span className="font-bold text-[var(--mhl-text)]">{mate.display_name}</span>
+                        <div className="flex items-center gap-2 text-[var(--mhl-muted)]">
+                          {mate.jersey_number !== null && (
+                            <span className="font-bold text-[var(--mhl-green)]">#{mate.jersey_number}</span>
+                          )}
+                          <span>{mate.position ?? "Jugador"}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-6 rounded-2xl border border-dashed border-[var(--mhl-border)] p-6 text-center text-xs text-[var(--mhl-muted)]">
+              Actualmente sos un <strong className="text-[var(--mhl-text)]">jugador libre</strong> (sin equipo asignado). Un Director Técnico puede solicitar tu incorporación a su franquicia.
             </div>
           )}
         </section>

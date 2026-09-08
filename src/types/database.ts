@@ -954,6 +954,76 @@ export type Database = {
           },
         ]
       }
+      team_roster_requests: {
+        Row: {
+          admin_notes: string | null
+          applied_team_member_id: string | null
+          cancelled_at: string | null
+          coach_user_id: string
+          id: string
+          player_id: string
+          reason: string | null
+          request_type: string
+          requested_at: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          team_id: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          applied_team_member_id?: string | null
+          cancelled_at?: string | null
+          coach_user_id: string
+          id?: string
+          player_id: string
+          reason?: string | null
+          request_type: string
+          requested_at?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          team_id: string
+        }
+        Update: {
+          admin_notes?: string | null
+          applied_team_member_id?: string | null
+          cancelled_at?: string | null
+          coach_user_id?: string
+          id?: string
+          player_id?: string
+          reason?: string | null
+          request_type?: string
+          requested_at?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          team_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "team_roster_requests_applied_team_member_id_fkey"
+            columns: ["applied_team_member_id"]
+            isOneToOne: false
+            referencedRelation: "team_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_roster_requests_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_roster_requests_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       teams: {
         Row: {
           active: boolean
@@ -1021,6 +1091,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      assign_team_coach: {
+        Args: {
+          requested_team_id: string
+          requested_user_id: string
+        }
+        Returns: string
+      }
       cancel_new_player_registration: {
         Args: { requested_request_id: string }
         Returns: undefined
@@ -1029,9 +1106,17 @@ export type Database = {
         Args: { requested_claim_id: string }
         Returns: undefined
       }
+      cancel_team_roster_request: {
+        Args: { requested_request_id: string }
+        Returns: undefined
+      }
       has_role: {
         Args: { requested_role: string; requested_user_id: string }
         Returns: boolean
+      }
+      remove_team_coach: {
+        Args: { requested_team_coach_id: string }
+        Returns: undefined
       }
       request_new_player_registration: {
         Args: {
@@ -1043,6 +1128,14 @@ export type Database = {
       }
       request_player_claim: {
         Args: { requested_player_id: string }
+        Returns: string
+      }
+      request_team_roster_change: {
+        Args: {
+          requested_player_id: string
+          requested_reason?: string | null
+          requested_request_type: string
+        }
         Returns: string
       }
       review_new_player_registration: {
@@ -1058,6 +1151,14 @@ export type Database = {
           decision: string
           notes?: string | null
           requested_claim_id: string
+        }
+        Returns: undefined
+      }
+      review_team_roster_request: {
+        Args: {
+          decision: string
+          notes?: string | null
+          requested_request_id: string
         }
         Returns: undefined
       }

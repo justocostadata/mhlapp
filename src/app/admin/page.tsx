@@ -6,6 +6,10 @@ import {
   rejectPlayerClaim,
   approveNewPlayerRegistration,
   rejectNewPlayerRegistration,
+  assignCoach,
+  removeCoach,
+  approveRosterRequest,
+  rejectRosterRequest,
 } from "./actions";
 
 export default async function AdminPage() {
@@ -13,19 +17,26 @@ export default async function AdminPage() {
   const supabase = await createClient();
 
   const [
-    players,
-    teams,
-    matches,
+    playersCount,
+    teamsCount,
+    matchesCount,
     claimsCountResult,
     registrationsCountResult,
+    rosterRequestsCountResult,
     rawClaimsResult,
     rawRegistrationsResult,
+    rawRosterRequestsResult,
+    rawTeamsResult,
+    rawActiveCoachesResult,
+    rawActiveMembersResult,
+    rawAllProfilesResult,
   ] = await Promise.all([
     supabase.from("players").select("id", { count: "exact", head: true }),
     supabase.from("teams").select("id", { count: "exact", head: true }),
     supabase.from("matches").select("id", { count: "exact", head: true }),
     supabase.from("player_claims").select("id", { count: "exact", head: true }).eq("status", "pending"),
     supabase.from("player_registration_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
+    supabase.from("team_roster_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
     supabase
       .from("player_claims")
       .select("id, player_id, user_id, requested_at, status, admin_notes")
@@ -36,32 +47,67 @@ export default async function AdminPage() {
       .select("id, display_name, position, category, user_id, requested_at, status, admin_notes")
       .eq("status", "pending")
       .order("requested_at", { ascending: false }),
+    supabase
+      .from("team_roster_requests")
+      .select("id, team_id, player_id, request_type, status, reason, requested_at, admin_notes")
+      .eq("status", "pending")
+      .order("requested_at", { ascending: false }),
+    supabase.from("teams").select("id, name, short_name, active, logo_url").order("name"),
+    supabase.from("team_coaches").select("id, team_id, user_id, joined_at, left_at").is("left_at", null),
+    supabase.from("team_members").select("id, team_id, player_id, joined_at, left_at").is("left_at", null),
+    supabase.from("profiles").select("id, display_name").order("display_name"),
   ]);
 
   const pendingClaimsList = rawClaimsResult.data ?? [];
   const pendingRegistrationsList = rawRegistrationsResult.data ?? [];
+  const pendingRosterRequestsList = rawRosterRequestsResult.data ?? [];
+  const allTeamsList = rawTeamsResult.data ?? [];
+  const activeCoachesList = rawActiveCoachesResult.data ?? [];
+  const activeMembersList = rawActiveMembersResult.data ?? [];
+  const allProfilesList = rawAllProfilesResult.data ?? [];
 
-  const playerIds = Array.from(new Set(pendingClaimsList.map((c) => c.player_id).filter(Boolean)));
-  const allUserIds = Array.from(
+  // Lookup data
+  const teamsMap = new Map(allTeamsList.map((t) => [t.id, t]));
+  const profilesMap = new Map(allProfilesList.map((p) => [p.id, p]));
+
+  // Active coach user set to easily know who is currently coaching
+  const activeCoachUserIdToTeam = new Map<string, string>();
+  for (const c of activeCoachesList) {
+    activeCoachUserIdToTeam.set(c.user_id, c.team_id);
+  }
+
+  // Active player count per team
+  const teamMemberCountMap = new Map<string, number>();
+  for (const m of activeMembersList) {
+    teamMemberCountMap.set(m.team_id, (teamMemberCountMap.get(m.team_id) ?? 0) + 1);
+  }
+
+  // Active coaches per team
+  const teamCoachesMap = new Map<string, typeof activeCoachesList>();
+  for (const c of activeCoachesList) {
+    const list = teamCoachesMap.get(c.team_id) ?? [];
+    list.push(c);
+    teamCoachesMap.set(c.team_id, list);
+  }
+
+  // Players lookup needed for claims and roster requests
+  const playerIdsToFetch = Array.from(
     new Set([
-      ...pendingClaimsList.map((c) => c.user_id),
-      ...pendingRegistrationsList.map((r) => r.user_id),
+      ...pendingClaimsList.map((c) => c.player_id),
+      ...pendingRosterRequestsList.map((r) => r.player_id),
     ].filter(Boolean))
   );
 
-  const [{ data: playersData }, { data: profilesData }] = await Promise.all([
-    playerIds.length > 0
-      ? supabase.from("players").select("id, display_name, position, category").in("id", playerIds)
-      : Promise.resolve({ data: [] }),
-    allUserIds.length > 0
-      ? supabase.from("profiles").select("id, display_name").in("id", allUserIds)
-      : Promise.resolve({ data: [] }),
-  ]);
+  const { data: playersData } = playerIdsToFetch.length > 0
+    ? await supabase.from("players").select("id, display_name, position, category").in("id", playerIdsToFetch)
+    : { data: [] };
 
   const playersMap = new Map((playersData ?? []).map((p) => [p.id, p]));
-  const profilesMap = new Map((profilesData ?? []).map((p) => [p.id, p]));
 
-  const totalPending = (claimsCountResult.count ?? 0) + (registrationsCountResult.count ?? 0);
+  const totalPending =
+    (claimsCountResult.count ?? 0) +
+    (registrationsCountResult.count ?? 0) +
+    (rosterRequestsCountResult.count ?? 0);
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-10">
@@ -71,20 +117,248 @@ export default async function AdminPage() {
 
       {/* DASHBOARD STATS */}
       <div className="mt-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Jugadores" value={players.count ?? "—"} />
-        <StatCard label="Equipos" value={teams.count ?? "—"} />
-        <StatCard label="Partidos" value={matches.count ?? "—"} />
+        <StatCard label="Jugadores" value={playersCount.count ?? "—"} />
+        <StatCard label="Equipos" value={teamsCount.count ?? "—"} />
+        <StatCard label="Partidos" value={matchesCount.count ?? "—"} />
         <StatCard label="Solicitudes pendientes" value={totalPending} />
       </div>
 
-      {/* SECCIÓN GENERAL DE SOLICITUDES DE PERFIL */}
+      {/* SECCIÓN 1: SOLICITUDES DE PLANTILLA (ADD / REMOVE) */}
+      <section className="mt-12 space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-[var(--mhl-green)]">Plantillas y Equipos</p>
+            <h2 className="mt-1 text-2xl font-black uppercase tracking-tight">Solicitudes de plantilla (Coach)</h2>
+          </div>
+          <span className="rounded-xl border border-[var(--mhl-border)] bg-[var(--mhl-panel)] px-3 py-1 text-xs font-black">
+            {pendingRosterRequestsList.length} {pendingRosterRequestsList.length === 1 ? "pendiente" : "pendientes"}
+          </span>
+        </div>
+
+        {pendingRosterRequestsList.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-[var(--mhl-border)] p-6 text-center text-sm text-[var(--mhl-muted)]">
+            No hay solicitudes de plantilla pendientes de los coaches.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {pendingRosterRequestsList.map((req) => {
+              const reqPlayer = playersMap.get(req.player_id);
+              const reqTeam = teamsMap.get(req.team_id);
+              const isAdd = req.request_type === "add";
+
+              return (
+                <article
+                  key={req.id}
+                  className="rounded-2xl border border-[var(--mhl-border)] bg-[var(--mhl-panel)] p-5 transition hover:border-[#45524c]"
+                >
+                  <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`inline-flex items-center rounded-lg px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${
+                            isAdd
+                              ? "border border-[var(--mhl-green)]/40 bg-[var(--mhl-green)]/15 text-[var(--mhl-green)]"
+                              : "border border-[var(--mhl-red)]/40 bg-[var(--mhl-red)]/15 text-[var(--mhl-red)]"
+                          }`}
+                        >
+                          {isAdd ? "Incorporación (ADD)" : "Baja de plantilla (REMOVE)"}
+                        </span>
+                        <span className="text-xs text-[var(--mhl-muted)]">·</span>
+                        <span className="text-xs text-[var(--mhl-muted)]">
+                          {new Date(req.requested_at).toLocaleDateString("es-AR", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      </div>
+
+                      <h3 className="text-xl font-black uppercase tracking-tight">
+                        {reqPlayer?.display_name ?? "Jugador desconocido"}
+                      </h3>
+
+                      <p className="text-xs text-[var(--mhl-muted)]">
+                        Equipo: <span className="font-bold text-[var(--mhl-text)]">{reqTeam?.name ?? "Equipo"}</span>
+                        {reqPlayer?.position ? ` · Posición: ${reqPlayer.position}` : ""}
+                        {reqPlayer?.category ? ` · Categoría: ${reqPlayer.category}` : ""}
+                      </p>
+
+                      {req.reason && (
+                        <p className="text-xs text-[var(--mhl-muted)]">
+                          Motivo del Coach: <span className="italic text-[var(--mhl-text)]">&ldquo;{req.reason}&rdquo;</span>
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 sm:self-center">
+                      <form action={rejectRosterRequest}>
+                        <input type="hidden" name="requestId" value={req.id} />
+                        <button
+                          type="submit"
+                          className="rounded-xl border border-[var(--mhl-red)]/40 bg-[var(--mhl-red)]/10 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-[var(--mhl-red)] transition hover:bg-[var(--mhl-red)]/20"
+                        >
+                          Rechazar
+                        </button>
+                      </form>
+
+                      <form action={approveRosterRequest}>
+                        <input type="hidden" name="requestId" value={req.id} />
+                        <button
+                          type="submit"
+                          className="rounded-xl bg-[var(--mhl-green)] px-5 py-2.5 text-xs font-black uppercase tracking-wider text-[#080b0a] transition hover:brightness-110"
+                        >
+                          Aprobar
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* SECCIÓN 2: GESTIÓN DE EQUIPOS Y COACHES */}
+      <section className="mt-12 space-y-6">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-[var(--mhl-green)]">Administración deportiva</p>
+          <h2 className="mt-1 text-2xl font-black uppercase tracking-tight">Gestión de Equipos y Coaches</h2>
+          <p className="mt-1 text-sm text-[var(--mhl-muted)]">
+            Asigná directores técnicos a los equipos o remové coaches activos. Al asignar, el sistema otorga el rol automáticamente.
+          </p>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          {allTeamsList.map((team) => {
+            const teamCoaches = teamCoachesMap.get(team.id) ?? [];
+            const memberCount = teamMemberCountMap.get(team.id) ?? 0;
+
+            return (
+              <article
+                key={team.id}
+                className="flex flex-col justify-between rounded-2xl border border-[var(--mhl-border)] bg-[var(--mhl-panel)] p-6"
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-xl font-black uppercase tracking-tight">{team.name}</h3>
+                    {team.short_name && (
+                      <span className="rounded-md border border-[var(--mhl-border)] bg-[var(--mhl-panel-2)] px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-[var(--mhl-muted)]">
+                        {team.short_name}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="mt-4 flex items-center gap-4 text-xs text-[var(--mhl-muted)]">
+                    <span>
+                      Jugadores activos: <strong className="text-[var(--mhl-text)]">{memberCount}</strong>
+                    </span>
+                    <span>·</span>
+                    <span>
+                      Estado: <strong className="text-[var(--mhl-green)]">{team.active ? "Activo" : "Inactivo"}</strong>
+                    </span>
+                  </div>
+
+                  {/* Coaches actuales */}
+                  <div className="mt-5 border-t border-[var(--mhl-border)]/60 pt-4">
+                    <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--mhl-muted)]">
+                      Coaches activos ({teamCoaches.length})
+                    </p>
+
+                    {teamCoaches.length === 0 ? (
+                      <p className="mt-2 text-xs italic text-[var(--mhl-muted)]">Sin coach asignado</p>
+                    ) : (
+                      <div className="mt-2.5 space-y-2">
+                        {teamCoaches.map((c) => {
+                          const coachProfile = profilesMap.get(c.user_id);
+                          const coachName = coachProfile?.display_name || c.user_id;
+
+                          return (
+                            <div
+                              key={c.id}
+                              className="flex items-center justify-between gap-2 rounded-xl border border-[var(--mhl-border)] bg-[var(--mhl-panel-2)] px-3 py-2 text-xs"
+                            >
+                              <span className="font-bold text-[var(--mhl-text)]">{coachName}</span>
+                              <form action={removeCoach}>
+                                <input type="hidden" name="teamCoachId" value={c.id} />
+                                <button
+                                  type="submit"
+                                  className="text-[11px] font-black uppercase tracking-wider text-[var(--mhl-red)] hover:underline"
+                                >
+                                  Quitar
+                                </button>
+                              </form>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Asignar nuevo coach */}
+                <div className="mt-6 border-t border-[var(--mhl-border)]/60 pt-4">
+                  <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--mhl-muted)]">
+                    Asignar Coach a {team.name}
+                  </p>
+                  <form action={assignCoach} className="mt-2.5 flex flex-col gap-2">
+                    <input type="hidden" name="teamId" value={team.id} />
+                    <select
+                      name="userId"
+                      required
+                      defaultValue=""
+                      className="w-full rounded-xl border border-[var(--mhl-border)] bg-[var(--mhl-panel-2)] px-3 py-2.5 text-xs text-[var(--mhl-text)] focus:border-[var(--mhl-green)] focus:outline-none"
+                    >
+                      <option value="" disabled>
+                        Seleccionar usuario de la lista...
+                      </option>
+                      {allProfilesList.map((p) => {
+                        const existingTeamId = activeCoachUserIdToTeam.get(p.id);
+                        const isCoachingOther = existingTeamId && existingTeamId !== team.id;
+                        const isCoachingThis = existingTeamId === team.id;
+                        const otherTeamName = existingTeamId ? teamsMap.get(existingTeamId)?.name : null;
+
+                        return (
+                          <option
+                            key={p.id}
+                            value={p.id}
+                            disabled={Boolean(isCoachingOther || isCoachingThis)}
+                          >
+                            {p.display_name || p.id}{" "}
+                            {isCoachingThis
+                              ? "(Ya es coach de este equipo)"
+                              : isCoachingOther
+                              ? `(Ya dirige: ${otherTeamName})`
+                              : ""}
+                          </option>
+                        );
+                      })}
+                    </select>
+
+                    <button
+                      type="submit"
+                      className="w-full rounded-xl bg-[var(--mhl-green)] px-4 py-2 text-xs font-black uppercase tracking-wider text-[#080b0a] transition hover:brightness-110"
+                    >
+                      Asignar Coach
+                    </button>
+                  </form>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* SECCIÓN 3: SOLICITUDES DE PERFIL (HISTÓRICOS Y NUEVOS) */}
       <section className="mt-12 space-y-10">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.2em] text-[var(--mhl-yellow)]">Gestión de usuarios</p>
-          <h2 className="mt-1 text-2xl font-black uppercase tracking-tight">Solicitudes de perfil</h2>
+          <h2 className="mt-1 text-2xl font-black uppercase tracking-tight">Solicitudes de perfil de jugador</h2>
         </div>
 
-        {/* 1. RECLAMOS DE JUGADORES HISTÓRICOS */}
+        {/* RECLAMOS HISTÓRICOS */}
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-4">
             <h3 className="text-lg font-black uppercase tracking-tight">
@@ -172,7 +446,7 @@ export default async function AdminPage() {
           )}
         </div>
 
-        {/* 2. ALTAS DE JUGADORES NUEVOS */}
+        {/* ALTAS DE JUGADORES NUEVOS */}
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-4">
             <h3 className="text-lg font-black uppercase tracking-tight">

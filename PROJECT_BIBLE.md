@@ -42,7 +42,8 @@ No usar para features nuevas, no modificar ni borrar todavía:
 ## 7. Fuente de verdad nueva
 Identidad: `profiles`, `roles`, `user_roles`.
 Deporte: `players`, `teams`, `team_members`, `team_coaches`, `seasons`, `competition_types`, `competitions`, `competition_teams`, `match_types`, `matches`, `match_players`, `match_event_types`, `match_events`.
-Vinculación: `player_claims`.
+Vinculación: `player_claims`, `player_registration_requests`.
+Gestión de plantel: `team_roster_requests`.
 Cuarentena legacy: `legacy_unmatched_match_events`.
 
 ## 8. Player no es User
@@ -75,8 +76,17 @@ Toda modificación de schema debe proponerse, revisarse, migrarse y verificarse 
 ## 12. Planillero
 Mobile-first extremo. Antes del partido ve confirmados, pagos, pendientes y total a cobrar. Registra cobro y asistencia. Durante el partido: Gol, Asistencia, Falta, Amarilla, Roja, Azul, Atajada, Penal atajado. Evento → jugador → guardar. Puede corregir según RLS.
 
-## 13. Coach
-Solo equipos asignados por `team_coaches`. Convoca y gestiona plantilla según configuración del partido. Nunca administrar equipos ajenos.
+## 13. Coach y plantillas
+- Un equipo puede tener varios coaches activos.
+- Un coach puede dirigir como máximo un equipo activo.
+- `coach` y `player` son roles/relaciones separados; una cuenta puede tener ambos.
+- Si una persona es Player + Coach, debe jugar y dirigir el mismo equipo.
+- Un jugador puede pertenecer como máximo a un equipo activo.
+- El Coach NO modifica `team_members` directamente: solicita incorporación o baja mediante `team_roster_requests`.
+- Admin aprueba o rechaza esas solicitudes.
+- Si el jugador ya pertenece a otro equipo, no se mueve automáticamente: requiere el futuro módulo de Traspasos.
+- Las bajas cierran historial con `left_at`; no se borran membresías históricas.
+- Convocatorias, titulares y posiciones de partido pertenecen al Motor del Partido, no a la gestión de plantilla.
 
 ## 14. Estadísticas
 Fuente: `match_events` + `match_players`. No guardar acumulados manuales como fuente principal. Ranking no bloquea el lanzamiento.
@@ -94,7 +104,7 @@ Server Components por defecto; Client Components solo cuando corresponda. Client
 Cambios nuevos viven en `supabase/migrations`. Flujo: proponer → revisar → aprobar → ejecutar → validar → commit. No ejecutar SQL improvisado y olvidarlo.
 
 ## 19. Git/Vercel
-Repo objetivo `mhlapp-next`. `main` producción; `develop` integración; feature branches para cambios importantes. No desarrollar directo en main. Vercel conectado a GitHub; secrets/env vars en Vercel, no en Git.
+Repo objetivo `mhlapp`. `main` producción; `develop` integración; feature branches para cambios importantes. No desarrollar directo en main. Vercel conectado a GitHub; secrets/env vars en Vercel, no en Git.
 
 ## 20. Orden de implementación
 0 Bootstrap.
