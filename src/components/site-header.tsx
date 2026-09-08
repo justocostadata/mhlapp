@@ -20,6 +20,7 @@ export async function SiteHeader() {
           <Link className="hover:text-white" href="/equipos">Equipos</Link>
           <Link className="hover:text-white" href="/jugadores">Jugadores</Link>
           {roles.includes("coach") && <Link className="text-[var(--mhl-green)]" href="/coach">Panel Coach</Link>}
+          {roles.includes("planillero") && <Link className="text-[var(--mhl-yellow)]" href="/planillero">Planillero</Link>}
           {roles.includes("admin") && <Link className="text-[var(--mhl-red)]" href="/admin">Admin</Link>}
         </nav>
 

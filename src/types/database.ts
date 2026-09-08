@@ -431,8 +431,91 @@ export type Database = {
           },
         ]
       }
+      match_payments: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          kind: string
+          match_player_id: string
+          method: string | null
+          note: string | null
+          paid_at: string
+          registered_by: string
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          kind: string
+          match_player_id: string
+          method?: string | null
+          note?: string | null
+          paid_at?: string
+          registered_by: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          kind?: string
+          match_player_id?: string
+          method?: string | null
+          note?: string | null
+          paid_at?: string
+          registered_by?: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "match_payments_match_player_id_fkey"
+            columns: ["match_player_id"]
+            isOneToOne: false
+            referencedRelation: "match_players"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      match_player_financials: {
+        Row: {
+          amount_due: number
+          created_at: string
+          match_player_id: string
+          updated_at: string
+        }
+        Insert: {
+          amount_due?: number
+          created_at?: string
+          match_player_id: string
+          updated_at?: string
+        }
+        Update: {
+          amount_due?: number
+          created_at?: string
+          match_player_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "match_player_financials_match_player_id_fkey"
+            columns: ["match_player_id"]
+            isOneToOne: true
+            referencedRelation: "match_players"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       match_players: {
         Row: {
+          attendance_status: string
           created_at: string
           id: string
           match_id: string
@@ -446,6 +529,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          attendance_status?: string
           created_at?: string
           id?: string
           match_id: string
@@ -459,6 +543,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          attendance_status?: string
           created_at?: string
           id?: string
           match_id?: string
@@ -549,8 +634,11 @@ export type Database = {
           matchday: number | null
           phase: string | null
           pitch: string | null
+          player_price: number | null
+          max_players: number | null
           referee_name: string | null
           scheduled_at: string | null
+          scorekeeper_user_id: string | null
           season_id: string | null
           status: string
           updated_at: string
@@ -581,10 +669,13 @@ export type Database = {
           match_number?: string | null
           match_type: string
           matchday?: number | null
+          max_players?: number | null
           phase?: string | null
           pitch?: string | null
+          player_price?: number | null
           referee_name?: string | null
           scheduled_at?: string | null
+          scorekeeper_user_id?: string | null
           season_id?: string | null
           status?: string
           updated_at?: string
@@ -615,10 +706,13 @@ export type Database = {
           match_number?: string | null
           match_type?: string
           matchday?: number | null
+          max_players?: number | null
           phase?: string | null
           pitch?: string | null
+          player_price?: number | null
           referee_name?: string | null
           scheduled_at?: string | null
+          scorekeeper_user_id?: string | null
           season_id?: string | null
           status?: string
           updated_at?: string
@@ -653,6 +747,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "match_types"
             referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "matches_scorekeeper_user_id_fkey"
+            columns: ["scorekeeper_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "matches_season_id_fkey"
@@ -1091,12 +1192,25 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      assign_match_scorekeeper: {
+        Args: {
+          requested_match_id: string
+          requested_user_id: string
+        }
+        Returns: undefined
+      }
       assign_team_coach: {
         Args: {
           requested_team_id: string
           requested_user_id: string
         }
         Returns: string
+      }
+      can_operate_match: {
+        Args: {
+          requested_match_id: string
+        }
+        Returns: boolean
       }
       cancel_new_player_registration: {
         Args: { requested_request_id: string }
@@ -1110,9 +1224,77 @@ export type Database = {
         Args: { requested_request_id: string }
         Returns: undefined
       }
+      coach_invite_match_player: {
+        Args: {
+          requested_match_id: string
+          requested_player_id: string
+        }
+        Returns: string
+      }
+      complete_match_v1: {
+        Args: {
+          requested_away_score: number
+          requested_home_score: number
+          requested_match_id: string
+        }
+        Returns: undefined
+      }
+      create_match_v1: {
+        Args: {
+          requested_away_team_id?: string | null
+          requested_competition_id?: string | null
+          requested_home_team_id?: string | null
+          requested_match_number?: number | null
+          requested_match_type: string
+          requested_matchday?: number | null
+          requested_max_players?: number | null
+          requested_phase?: string | null
+          requested_pitch?: string | null
+          requested_player_price: number
+          requested_scheduled_at: string
+          requested_venue_name?: string | null
+          requested_zone?: string | null
+        }
+        Returns: string
+      }
+      grant_match_waiver: {
+        Args: {
+          requested_amount: number
+          requested_match_player_id: string
+          requested_note?: string | null
+        }
+        Returns: string
+      }
       has_role: {
         Args: { requested_role: string; requested_user_id: string }
         Returns: boolean
+      }
+      join_friendly_match: {
+        Args: {
+          requested_match_id: string
+        }
+        Returns: string
+      }
+      publish_match_v1: {
+        Args: {
+          requested_match_id: string
+        }
+        Returns: undefined
+      }
+      record_match_payment: {
+        Args: {
+          requested_amount: number
+          requested_match_player_id: string
+          requested_method: string
+          requested_note?: string | null
+        }
+        Returns: string
+      }
+      remove_match_scorekeeper: {
+        Args: {
+          requested_match_id: string
+        }
+        Returns: undefined
       }
       remove_team_coach: {
         Args: { requested_team_coach_id: string }
@@ -1138,6 +1320,13 @@ export type Database = {
         }
         Returns: string
       }
+      respond_match_participation: {
+        Args: {
+          requested_decision: string
+          requested_match_player_id: string
+        }
+        Returns: undefined
+      }
       review_new_player_registration: {
         Args: {
           decision: string
@@ -1159,6 +1348,26 @@ export type Database = {
           decision: string
           notes?: string | null
           requested_request_id: string
+        }
+        Returns: undefined
+      }
+      set_match_attendance: {
+        Args: {
+          requested_attendance_status: string
+          requested_match_player_id: string
+        }
+        Returns: undefined
+      }
+      start_match_v1: {
+        Args: {
+          requested_match_id: string
+        }
+        Returns: undefined
+      }
+      void_match_payment: {
+        Args: {
+          requested_payment_id: string
+          requested_reason: string
         }
         Returns: undefined
       }
