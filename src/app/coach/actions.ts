@@ -74,3 +74,29 @@ export async function cancelRosterRequest(formData: FormData) {
   revalidatePath("/coach");
   revalidatePath("/admin");
 }
+
+export async function invitePlayerToMatch(formData: FormData) {
+  await requireRole("coach");
+  const matchId = formData.get("matchId")?.toString();
+  const playerId = formData.get("playerId")?.toString();
+
+  if (!matchId || !playerId) {
+    throw new Error("ID de partido y jugador requeridos");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("coach_invite_match_player", {
+    requested_match_id: matchId,
+    requested_player_id: playerId,
+  });
+
+  if (error) {
+    throw new Error(error.message || "Error al convocar al jugador");
+  }
+
+  revalidatePath(`/coach/partidos/${matchId}`);
+  revalidatePath("/coach");
+  revalidatePath(`/admin/partidos/${matchId}`);
+  revalidatePath("/partidos");
+}
+

@@ -607,6 +607,118 @@ export type Database = {
         }
         Relationships: []
       }
+      match_team_financials: {
+        Row: {
+          amount_due: number
+          created_at: string
+          id: string
+          match_id: string
+          team_id: string
+          updated_at: string
+        }
+        Insert: {
+          amount_due: number
+          created_at?: string
+          id?: string
+          match_id: string
+          team_id: string
+          updated_at?: string
+        }
+        Update: {
+          amount_due?: number
+          created_at?: string
+          id?: string
+          match_id?: string
+          team_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "match_team_financials_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "match_team_financials_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      match_team_payments: {
+        Row: {
+          amount: number
+          created_at: string
+          financial_id: string
+          id: string
+          kind: string
+          method: string | null
+          note: string | null
+          paid_at: string
+          paid_by_user_id: string | null
+          registered_by: string
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          financial_id: string
+          id?: string
+          kind: string
+          method?: string | null
+          note?: string | null
+          paid_at?: string
+          paid_by_user_id?: string | null
+          registered_by: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          financial_id?: string
+          id?: string
+          kind?: string
+          method?: string | null
+          note?: string | null
+          paid_at?: string
+          paid_by_user_id?: string | null
+          registered_by?: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "match_team_payments_financial_id_fkey"
+            columns: ["financial_id"]
+            isOneToOne: false
+            referencedRelation: "match_team_financials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "match_team_payments_paid_by_user_id_fkey"
+            columns: ["paid_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "match_team_payments_registered_by_fkey"
+            columns: ["registered_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       matches: {
         Row: {
           away_score: number | null
@@ -635,6 +747,7 @@ export type Database = {
           phase: string | null
           pitch: string | null
           player_price: number | null
+          team_price: number | null
           max_players: number | null
           referee_name: string | null
           scheduled_at: string | null
@@ -673,6 +786,7 @@ export type Database = {
           phase?: string | null
           pitch?: string | null
           player_price?: number | null
+          team_price?: number | null
           referee_name?: string | null
           scheduled_at?: string | null
           scorekeeper_user_id?: string | null
@@ -710,6 +824,7 @@ export type Database = {
           phase?: string | null
           pitch?: string | null
           player_price?: number | null
+          team_price?: number | null
           referee_name?: string | null
           scheduled_at?: string | null
           scorekeeper_user_id?: string | null
@@ -1239,6 +1354,22 @@ export type Database = {
         }
         Returns: undefined
       }
+      create_competition_match_v1: {
+        Args: {
+          requested_away_team_id: string
+          requested_competition_id: string
+          requested_home_team_id: string
+          requested_match_number?: number | null
+          requested_matchday?: number | null
+          requested_phase?: string | null
+          requested_pitch?: string | null
+          requested_scheduled_at: string
+          requested_team_price: number
+          requested_venue_name?: string | null
+          requested_zone?: string | null
+        }
+        Returns: string
+      }
       create_match_v1: {
         Args: {
           requested_away_team_id?: string | null
@@ -1254,6 +1385,14 @@ export type Database = {
           requested_scheduled_at: string
           requested_venue_name?: string | null
           requested_zone?: string | null
+        }
+        Returns: string
+      }
+      grant_match_team_waiver: {
+        Args: {
+          requested_amount: number
+          requested_financial_id: string
+          requested_note?: string | null
         }
         Returns: string
       }
@@ -1287,6 +1426,16 @@ export type Database = {
           requested_match_player_id: string
           requested_method: string
           requested_note?: string | null
+        }
+        Returns: string
+      }
+      record_match_team_payment: {
+        Args: {
+          requested_amount: number
+          requested_financial_id: string
+          requested_method: string
+          requested_note?: string | null
+          requested_paid_by_user_id?: string | null
         }
         Returns: string
       }
@@ -1365,6 +1514,13 @@ export type Database = {
         Returns: undefined
       }
       void_match_payment: {
+        Args: {
+          requested_payment_id: string
+          requested_reason: string
+        }
+        Returns: undefined
+      }
+      void_match_team_payment: {
         Args: {
           requested_payment_id: string
           requested_reason: string

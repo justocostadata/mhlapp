@@ -51,4 +51,6 @@ export async function respondMatchParticipation(formData: FormData) {
 
   revalidatePath("/partidos");
   revalidatePath("/mi-perfil");
+  revalidatePath("/coach");
+  revalidatePath("/planillero");
 }

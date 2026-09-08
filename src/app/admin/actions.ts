@@ -4,6 +4,14 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
+function argentinaLocalDateTimeToIso(date: string, time: string) {
+  const parsed = new Date(`${date}T${time}:00-03:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error("Fecha u hora inválida");
+  }
+  return parsed.toISOString();
+}
+
 export async function approvePlayerClaim(formData: FormData) {
   await requireRole("admin");
   const claimId = formData.get("claimId")?.toString();
@@ -216,7 +224,7 @@ export async function createFriendlyMatch(formData: FormData) {
     throw new Error("El cupo máximo de jugadores debe ser mayor a 0");
   }
 
-  const scheduledAt = new Date(`${date}T${time}:00`).toISOString();
+  const scheduledAt = argentinaLocalDateTimeToIso(date, time);
 
   const supabase = await createClient();
   const { data: newMatchId, error } = await supabase.rpc("create_match_v1", {
@@ -366,6 +374,181 @@ export async function voidMatchPaymentAction(formData: FormData) {
   revalidatePath("/admin");
   revalidatePath("/planillero");
 }
+
+export async function createCompetitionMatch(formData: FormData) {
+  await requireRole("admin");
+
+  const competitionId = formData.get("competition_id")?.toString();
+  const homeTeamId = formData.get("home_team_id")?.toString();
+  const awayTeamId = formData.get("away_team_id")?.toString();
+  const date = formData.get("date")?.toString();
+  const time = formData.get("time")?.toString();
+  const venueName = formData.get("venue_name")?.toString()?.trim() || null;
+  const pitch = formData.get("pitch")?.toString()?.trim() || null;
+  const teamPriceRaw = formData.get("team_price")?.toString();
+  const matchdayRaw = formData.get("matchday")?.toString();
+  const phase = formData.get("phase")?.toString()?.trim() || null;
+  const zone = formData.get("zone")?.toString()?.trim() || null;
+  const matchNumberRaw = formData.get("match_number")?.toString();
+
+  if (!competitionId) {
+    throw new Error("Competencia requerida");
+  }
+
+  if (!homeTeamId || !awayTeamId) {
+    throw new Error("Equipo local y visitante requeridos");
+  }
+
+  if (homeTeamId === awayTeamId) {
+    throw new Error("Los equipos local y visitante deben ser diferentes");
+  }
+
+  if (!date || !time) {
+    throw new Error("Fecha y hora son obligatorias");
+  }
+
+  const teamPrice = teamPriceRaw ? parseFloat(teamPriceRaw) : NaN;
+  if (isNaN(teamPrice) || teamPrice < 0) {
+    throw new Error("El precio por equipo debe ser un número mayor o igual a 0");
+  }
+
+  const matchday = matchdayRaw ? parseInt(matchdayRaw, 10) : null;
+  const matchNumber = matchNumberRaw ? parseInt(matchNumberRaw, 10) : null;
+  const scheduledAt = argentinaLocalDateTimeToIso(date, time);
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("create_competition_match_v1", {
+    requested_competition_id: competitionId,
+    requested_home_team_id: homeTeamId,
+    requested_away_team_id: awayTeamId,
+    requested_scheduled_at: scheduledAt,
+    requested_team_price: teamPrice,
+    requested_venue_name: venueName,
+    requested_pitch: pitch,
+    requested_matchday: matchday && !isNaN(matchday) ? matchday : null,
+    requested_phase: phase,
+    requested_zone: zone,
+    requested_match_number: matchNumber && !isNaN(matchNumber) ? matchNumber : null,
+  });
+
+  if (error) {
+    throw new Error(error.message || "Error al crear el partido de competencia");
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/partidos");
+  revalidatePath("/coach");
+}
+
+export async function recordMatchTeamPaymentAction(formData: FormData) {
+  await requireRole("admin");
+  const financialId = formData.get("financialId")?.toString();
+  const amountRaw = formData.get("amount")?.toString();
+  const method = formData.get("method")?.toString()?.trim();
+  const note = formData.get("note")?.toString()?.trim() || null;
+  const matchId = formData.get("matchId")?.toString();
+
+  if (!financialId || !amountRaw || !method) {
+    throw new Error("Cuenta del equipo, monto y método requeridos");
+  }
+
+  const amount = parseFloat(amountRaw);
+  if (isNaN(amount) || amount <= 0) {
+    throw new Error("El monto a cobrar debe ser mayor a 0");
+  }
+
+  const validMethods = ["cash", "transfer", "mercadopago", "other"];
+  if (!validMethods.includes(method)) {
+    throw new Error("Método de pago no válido");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("record_match_team_payment", {
+    requested_financial_id: financialId,
+    requested_amount: amount,
+    requested_method: method,
+    requested_note: note,
+    requested_paid_by_user_id: null,
+  });
+
+  if (error) {
+    throw new Error(error.message || "Error al registrar cobro del equipo");
+  }
+
+  if (matchId) {
+    revalidatePath(`/admin/partidos/${matchId}`);
+    revalidatePath(`/planillero/${matchId}`);
+  }
+  revalidatePath("/admin");
+  revalidatePath("/planillero");
+  revalidatePath("/coach");
+}
+
+export async function grantMatchTeamWaiverAction(formData: FormData) {
+  await requireRole("admin");
+  const financialId = formData.get("financialId")?.toString();
+  const amountRaw = formData.get("amount")?.toString();
+  const note = formData.get("note")?.toString()?.trim() || null;
+  const matchId = formData.get("matchId")?.toString();
+
+  if (!financialId || !amountRaw) {
+    throw new Error("Cuenta del equipo y monto de cortesía requeridos");
+  }
+
+  const amount = parseFloat(amountRaw);
+  if (isNaN(amount) || amount <= 0) {
+    throw new Error("El monto de la cortesía debe ser mayor a 0");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("grant_match_team_waiver", {
+    requested_financial_id: financialId,
+    requested_amount: amount,
+    requested_note: note,
+  });
+
+  if (error) {
+    throw new Error(error.message || "Error al registrar cortesía para el equipo");
+  }
+
+  if (matchId) {
+    revalidatePath(`/admin/partidos/${matchId}`);
+    revalidatePath(`/planillero/${matchId}`);
+  }
+  revalidatePath("/admin");
+  revalidatePath("/planillero");
+  revalidatePath("/coach");
+}
+
+export async function voidMatchTeamPaymentAction(formData: FormData) {
+  await requireRole("admin");
+  const paymentId = formData.get("paymentId")?.toString();
+  const reason = formData.get("reason")?.toString()?.trim();
+  const matchId = formData.get("matchId")?.toString();
+
+  if (!paymentId || !reason) {
+    throw new Error("ID de movimiento y motivo de anulación requeridos");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("void_match_team_payment", {
+    requested_payment_id: paymentId,
+    requested_reason: reason,
+  });
+
+  if (error) {
+    throw new Error(error.message || "Error al anular movimiento del equipo");
+  }
+
+  if (matchId) {
+    revalidatePath(`/admin/partidos/${matchId}`);
+    revalidatePath(`/planillero/${matchId}`);
+  }
+  revalidatePath("/admin");
+  revalidatePath("/planillero");
+  revalidatePath("/coach");
+}
+
 
 
 

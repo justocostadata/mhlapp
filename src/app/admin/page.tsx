@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { StatCard } from "@/components/stat-card";
+import { CompetitionMatchForm } from "./competition-match-form";
 import {
   approvePlayerClaim,
   rejectPlayerClaim,
@@ -37,6 +38,8 @@ export default async function AdminPage() {
     rawAllProfilesResult,
     rawMatchesResult,
     rawMatchPlayersResult,
+    rawCompetitionsResult,
+    rawCompetitionTeamsResult,
   ] = await Promise.all([
     supabase.from("players").select("id", { count: "exact", head: true }),
     supabase.from("teams").select("id", { count: "exact", head: true }),
@@ -65,12 +68,14 @@ export default async function AdminPage() {
     supabase.from("profiles").select("id, display_name").order("display_name"),
     supabase
       .from("matches")
-      .select("id, match_type, scheduled_at, venue_name, pitch, status, player_price, max_players, scorekeeper_user_id, created_at")
+      .select("id, match_type, scheduled_at, venue_name, pitch, status, player_price, team_price, max_players, scorekeeper_user_id, created_at, home_team_id, away_team_id, competition_id")
       .order("scheduled_at", { ascending: false, nullsFirst: false }),
     supabase
       .from("match_players")
       .select("id, match_id, participation_status")
       .neq("participation_status", "cancelled"),
+    supabase.from("competitions").select("id, name, status").order("name"),
+    supabase.from("competition_teams").select("competition_id, team_id"),
   ]);
 
   const pendingClaimsList = rawClaimsResult.data ?? [];
@@ -82,6 +87,8 @@ export default async function AdminPage() {
   const allProfilesList = rawAllProfilesResult.data ?? [];
   const allMatchesList = rawMatchesResult.data ?? [];
   const allActiveMatchPlayersList = rawMatchPlayersResult.data ?? [];
+  const allCompetitionsList = rawCompetitionsResult.data ?? [];
+  const allCompetitionTeamsList = rawCompetitionTeamsResult.data ?? [];
 
   const matchActivePlayersCountMap = new Map<string, number>();
   for (const mp of allActiveMatchPlayersList) {
@@ -161,7 +168,7 @@ export default async function AdminPage() {
           <p className="text-xs font-black uppercase tracking-[0.2em] text-[var(--mhl-green)]">Competición & Motor</p>
           <h2 className="mt-1 text-2xl font-black uppercase tracking-tight">Motor del Partido</h2>
           <p className="mt-1 text-sm text-[var(--mhl-muted)]">
-            Creá y administrá partidos amistosos y de competencia. El partido nace como borrador (<code className="text-xs text-[var(--mhl-text)]">draft</code>) y luego se publica y asigna staff planillero.
+            Creá y administrá amistosos y partidos oficiales. Primero se guardan como borrador, después se publican y se asigna el planillero.
           </p>
         </div>
 
@@ -169,7 +176,7 @@ export default async function AdminPage() {
         <div className="rounded-2xl border border-[var(--mhl-border)] bg-[var(--mhl-panel)] p-6">
           <h3 className="text-lg font-black uppercase tracking-tight">Crear Partido Amistoso</h3>
           <p className="mt-0.5 text-xs text-[var(--mhl-muted)]">
-            Configurá los detalles del amistoso para abrir inscripción a los jugadores usando <code className="text-[var(--mhl-green)]">create_match_v1</code>.
+            Configurá el amistoso y después publicalo para abrir la inscripción a los jugadores.
           </p>
 
           <form action={createFriendlyMatch} className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -194,7 +201,7 @@ export default async function AdminPage() {
             </div>
 
             <div>
-              <label className="text-[10px] font-black uppercase tracking-wider text-[var(--mhl-muted)]">Predio / Lugar (venue_name)</label>
+              <label className="text-[10px] font-black uppercase tracking-wider text-[var(--mhl-muted)]">Predio / Lugar</label>
               <input
                 type="text"
                 name="venue_name"
@@ -204,7 +211,7 @@ export default async function AdminPage() {
             </div>
 
             <div>
-              <label className="text-[10px] font-black uppercase tracking-wider text-[var(--mhl-muted)]">Cancha (pitch)</label>
+              <label className="text-[10px] font-black uppercase tracking-wider text-[var(--mhl-muted)]">Cancha</label>
               <input
                 type="text"
                 name="pitch"
@@ -243,11 +250,18 @@ export default async function AdminPage() {
                 type="submit"
                 className="rounded-xl bg-[var(--mhl-green)] px-6 py-2.5 text-xs font-black uppercase tracking-wider text-[#080b0a] transition hover:brightness-110"
               >
-                Crear Amistoso (Draft)
+                Crear amistoso (borrador)
               </button>
             </div>
           </form>
         </div>
+
+        {/* FORMULARIO CREAR COMPETENCIA */}
+        <CompetitionMatchForm
+          competitions={allCompetitionsList}
+          teams={allTeamsList}
+          competitionTeams={allCompetitionTeamsList}
+        />
 
         {/* LISTADO DE PARTIDOS EN EL MOTOR */}
         <div className="space-y-3">
@@ -267,7 +281,12 @@ export default async function AdminPage() {
               {allMatchesList.map((m) => {
                 const activeCount = matchActivePlayersCountMap.get(m.id) ?? 0;
                 const scorekeeper = m.scorekeeper_user_id ? profilesMap.get(m.scorekeeper_user_id) : null;
-                const statusBadge = matchStatusStyles[m.status] || { bg: "bg-neutral-800 text-neutral-300 border-neutral-700", label: m.status };
+                const baseStatusBadge = matchStatusStyles[m.status] || { bg: "bg-neutral-800 text-neutral-300 border-neutral-700", label: m.status };
+                const statusBadge =
+                  m.status === "open" && m.match_type === "competition"
+                    ? { ...baseStatusBadge, label: "Convocatoria abierta" }
+                    : baseStatusBadge;
+                const matchTypeLabel = m.match_type === "competition" ? "Competencia" : m.match_type === "friendly" ? "Amistoso" : m.match_type;
 
                 return (
                   <article
@@ -280,7 +299,7 @@ export default async function AdminPage() {
                           {statusBadge.label}
                         </span>
                         <span className="rounded-md border border-[var(--mhl-border)] bg-[var(--mhl-panel-2)] px-2 py-0.5 text-[10px] font-black uppercase text-[var(--mhl-muted)]">
-                          {m.match_type}
+                          {matchTypeLabel}
                         </span>
                         {m.scheduled_at && (
                           <span className="text-xs font-bold text-[var(--mhl-muted)]">

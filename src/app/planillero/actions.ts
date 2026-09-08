@@ -132,3 +132,46 @@ export async function completeMatchAction(formData: FormData) {
   revalidatePath("/partidos");
   revalidatePath(`/admin/partidos/${matchId}`);
 }
+
+export async function recordTeamPaymentAction(formData: FormData) {
+  await requireRole("planillero");
+  const financialId = formData.get("financialId")?.toString();
+  const amountRaw = formData.get("amount")?.toString();
+  const method = formData.get("method")?.toString()?.trim();
+  const note = formData.get("note")?.toString()?.trim() || null;
+  const matchId = formData.get("matchId")?.toString();
+
+  if (!financialId || !amountRaw || !method) {
+    throw new Error("Cuenta del equipo, monto y método de pago requeridos");
+  }
+
+  const validMethods = ["cash", "transfer", "mercadopago", "other"];
+  if (!validMethods.includes(method)) {
+    throw new Error("Método de pago no válido");
+  }
+
+  const amount = parseFloat(amountRaw);
+  if (isNaN(amount) || amount <= 0) {
+    throw new Error("El monto a registrar debe ser mayor a 0");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("record_match_team_payment", {
+    requested_financial_id: financialId,
+    requested_amount: amount,
+    requested_method: method,
+    requested_paid_by_user_id: null,
+    requested_note: note,
+  });
+
+  if (error) {
+    throw new Error(error.message || "Error al registrar el pago del equipo");
+  }
+
+  if (matchId) {
+    revalidatePath(`/planillero/${matchId}`);
+    revalidatePath(`/admin/partidos/${matchId}`);
+  }
+  revalidatePath("/planillero");
+  revalidatePath("/coach");
+}
